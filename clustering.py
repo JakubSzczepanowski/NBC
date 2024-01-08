@@ -1,36 +1,42 @@
+from typing import Literal
 import pandas as pd
 import numpy as np
 from numpy.typing import ArrayLike
 import queue
-import csv
+from scipy.spatial.distance import cdist
 
 class NBC:
 
-    def __init__(self, k: int):
-        self.k = k
+    def __init__(self, l: int = 2, method: Literal['normal', 'optimized', 'heuristic'] = 'normal'):
+        self.l = l
+        self.method = method
         self.pesimistic_distance_cache = {}
         self.real_distance_cache = {}
-        self.neighbours = None
-        self.ndf = None
 
-    def fit(self, X: pd.DataFrame, r: np.ndarray = None, l: int = 2):
+    def fit(self, X: pd.DataFrame):
+        self.n = len(X.index)
+        if self.method == 'normal':
+            self.distances = [
+                [
+                    (i, self.distance(row, inner_row, self.l))
+                    for i, inner_row in X.iterrows()
+                ]
+                for _, row in X.iterrows()
+            ]
+        elif self.method == 'optimized':
+            self.distances = cdist(X, X, 'minkowski', p=self.l)
+
+    def predict(self, X: pd.DataFrame, k: int):
         
-        self.l = l
         n = len(X.index)
         kNN_counter = np.zeros(n)
         RkNN_counter = np.zeros(n)
         clst_no = np.full(n, -1)
         neighbours = []
-        for index, row in X.iterrows():
-            distances = [(i, self._real_cache_check_or_save(row, inner_row)) for i, inner_row in X.iterrows()]
-            distances.sort(key=lambda x: x[1])
-            indices = [index for index, _ in distances[:self.k]]
+        for i in range(n):
+            indices = self._find_neighbors(i, k)
 
-            # Sprawdzenie, czy istnieją inne punkty równej odległości
-            equal_distance_indices = [index for index, dist in distances[self.k:] if dist == distances[self.k - 1][1]]
-            indices.extend(equal_distance_indices)
-
-            kNN_counter[index] = len(indices)
+            kNN_counter[i] = len(indices)
             for neighbour_index in indices:
                 RkNN_counter[neighbour_index] += 1
             neighbours.append(indices)
@@ -121,6 +127,28 @@ class NBC:
         #         elif up_run:
         #             up_run = False
         #     print(candidates)
+    
+    def _find_neighbors(self, current_element: int, k: int):
+        indices = None
+        if self.method == 'normal':
+            row_distances = self.distances[current_element]
+            row_distances.sort(key=lambda x: x[1])
+            indices = [index for index, _ in row_distances[1:k+1]]
+
+            # Sprawdzenie, czy istnieją inne punkty równej odległości
+            equal_distance_indices = [index for index, dist in row_distances[k+1:] if dist == row_distances[k][1]]
+            indices.extend(equal_distance_indices)
+        elif self.method == 'optimized':
+            indices = np.argsort(self.distances[current_element])[1:k+1]
+            max_distance = self.distances[current_element, indices[-1]]
+
+            # Sprawdzenie, czy istnieją inne punkty równej odległości
+            equal_distance_mask = (self.distances[current_element] == max_distance) & ~np.isin(np.arange(self.n), indices)
+
+            # Dodaj indeksy o równej odległości do listy
+            equal_distance_indices = np.where(equal_distance_mask)[0]
+            indices = np.concatenate((indices, equal_distance_indices))
+        return indices
 
     def _compare_with_epsilon(self, eps: float, current_series: pd.Series, target_series: pd.Series) -> tuple[bool, float]:
 
