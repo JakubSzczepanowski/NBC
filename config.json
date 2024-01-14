@@ -1,8 +1,8 @@
 {
-    "dataset": "test.csv",
-    "format": "csv",
+    "dataset": "datasets/vehicle.arff",
+    "format": "arff",
     "method": "optimized",
-    "k": 1,
+    "k": 20,
     "plot": true,
-    "target_feature": "test3"
+    "target_feature": "Class"
 }

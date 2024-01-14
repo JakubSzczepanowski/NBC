@@ -7,7 +7,7 @@ from scipy.spatial.distance import cdist
 
 class NBC:
 
-    def __init__(self, l: int = 2, method: Literal['normal', 'optimized', 'heuristic'] = 'normal'):
+    def __init__(self, l: int = 2, method: Literal['normal', 'optimized'] = 'normal'):
         self.l = l
         self.method = method
 
@@ -23,19 +23,11 @@ class NBC:
             ]
         elif self.method == 'optimized':
             self.distances = cdist(X, X, 'minkowski', p=self.l)
-        elif self.method == 'heuristic':
-            X['distance_with_r'] = 0.0
-            r = X.min()
-
-            for index, row in X.iterrows():
-                X.at[index, 'distance_with_r'] = self.distance(row, r, self.l)
-
-            X = X.sort_values(by='distance_with_r')
 
     def predict(self, X: pd.DataFrame, k: int):
         
         n = len(X.index)
-        kNN_counter = np.zeros(n, dtype=np.int32)
+        kNN_counter = np.zeros(n, dtype=np.float32)
         RkNN_counter = np.zeros(n, dtype=np.int32)
         clst_no = np.full(n, -1)
         neighbours = []
