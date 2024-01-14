@@ -40,7 +40,7 @@ class NBC:
         clst_no = np.full(n, -1)
         neighbours = []
         for i in range(n):
-            indices = self._find_neighbors(i, k, X)
+            indices = self._find_neighbors(i, k)
 
             counter = len(indices)
             kNN_counter[i] = np.finfo(float).eps if counter == 0 else counter
@@ -71,7 +71,7 @@ class NBC:
 
         
     
-    def _find_neighbors(self, current_element: int, k: int, X: pd.DataFrame):
+    def _find_neighbors(self, current_element: int, k: int):
         indices = None
 
         if self.method == 'normal':
@@ -96,107 +96,7 @@ class NBC:
             equal_distance_indices = np.where(equal_distance_mask)[0]
             indices = np.concatenate((indices, equal_distance_indices))
 
-        elif self.method == 'heuristic':
-
-            for i in range(self.n):
-                left_index = max(0, i - k)
-                right_index = min(self.n, i + k + 1)
-
-                target_series = X.iloc[i]
-                indexed_values = [[j, X.iloc[j], 0] for j in range(left_index, right_index) if j != i]
-                sorted_indexes = sorted(indexed_values, key=lambda x: np.abs(x[1]['distance_with_r'] - target_series['distance_with_r']))
-                candidates = sorted_indexes[:k]
-                eps = 0
-                for index, c in enumerate(candidates):
-                    real_distance = self.distance(c[1].drop('distance_with_r', errors='ignore'), target_series.drop('distance_with_r', errors='ignore'), self.l)
-                    candidates[index][2] = real_distance
-                    if real_distance > eps:
-                        eps = real_distance
-                inner_left_index = min(candidates, key=lambda x: x[0])[0] - 1
-                if inner_left_index == i:
-                    inner_left_index -= 1
-                inner_right_index = max(candidates, key=lambda x: x[0])[0] + 1
-                if inner_right_index == i:
-                    inner_right_index -= 1
-                up_run = True
-                down_run = True
-                while up_run or down_run:
-                    if inner_right_index < self.n and down_run:
-                        record = X.iloc[inner_right_index]
-                        pesimistic_distance = np.abs(record['distance_with_r'] - target_series['distance_with_r'])
-                        if pesimistic_distance >= eps:
-                            down_run = False
-                        else:
-                            real_distance = self.distance(record.drop('distance_with_r', errors='ignore'), target_series.drop('distance_with_r', errors='ignore'), self.l)
-                            if real_distance < eps:
-                                same_size_elements = [elem[0] for elem in candidates if elem[2] == eps]
-                                if len(candidates) - len(same_size_elements) >= k - 1:
-                                    candidates = [elem for elem in candidates if elem[0] not in same_size_elements]
-                                    candidates.append((inner_right_index, record, real_distance))
-                                    eps = max(candidates, key=lambda x: x[2])[2]
-                                else:
-                                    candidates.append((inner_right_index, record, real_distance))
-                            elif real_distance == eps:
-                                candidates.append((inner_right_index, record, real_distance))
-                        inner_right_index += 1
-
-                    if inner_left_index >= 0 and up_run:
-                        record = X.iloc[inner_left_index]
-                        pesimistic_distance = np.abs(record['distance_with_r'] - target_series['distance_with_r'])
-                        if pesimistic_distance >= eps:
-                            down_run = False
-                        else:
-                            real_distance = self.distance(record.drop('distance_with_r', errors='ignore'), target_series.drop('distance_with_r', errors='ignore'), self.l)
-                            if real_distance < eps:
-                                same_size_elements = (elem[0] for elem in candidates if elem[2] == eps)
-                                if len(candidates) - len(same_size_elements) >= k - 1:
-                                    candidates = [elem for elem in candidates if elem[0] not in same_size_elements]
-                                    candidates.append((inner_right_index, record, real_distance))
-                                    eps = max(candidates, key=lambda x: x[2])[2]
-                                else:
-                                    candidates.append((inner_right_index, record, real_distance))
-                            elif real_distance == eps:
-                                candidates.append((inner_right_index, record, real_distance))
-                        inner_left_index -= 1
-                print(candidates)
         return indices
-
-    def _compare_with_epsilon(self, eps: float, current_series: pd.Series, target_series: pd.Series) -> tuple[bool, float]:
-
-        greater_than_eps = False
-        
-
-        return (greater_than_eps, eps)
-
-
-    def kneighbors(self):
-        pass
         
     def distance(self, p: ArrayLike, q: ArrayLike, l: int) -> float:
         return np.power(np.sum([np.abs(i-j)**l for i, j in zip(p, q)]), 1/l)
-    
-    def _pesimistic_cache_check_or_save(self, obj1: pd.Series, obj2: pd.Series) -> float:
-        
-        if (obj1.name, obj2.name) in self.pesimistic_distance_cache:
-            return self.pesimistic_distance_cache[(obj1.name, obj2.name)]
-        if (obj2.name, obj1.name) in self.pesimistic_distance_cache:
-            return self.pesimistic_distance_cache[(obj2.name, obj1.name)]
-        
-        distance = np.abs(obj1['distance_with_r'] - obj2['distance_with_r'])
-
-        self.pesimistic_distance_cache[(obj1.name, obj2.name)] = distance
-
-        return distance
-    
-    def _real_cache_check_or_save(self, obj1: pd.Series, obj2: pd.Series) -> float:
-        
-        if (obj1.name, obj2.name) in self.real_distance_cache:
-            return self.real_distance_cache[(obj1.name, obj2.name)]
-        if (obj2.name, obj1.name) in self.real_distance_cache:
-            return self.real_distance_cache[(obj2.name, obj1.name)]
-        
-        distance = self.distance(obj1.drop('distance_with_r', errors='ignore'), obj2.drop('distance_with_r', errors='ignore'), self.l)
-
-        self.real_distance_cache[(obj1.name, obj2.name)] = distance
-
-        return distance

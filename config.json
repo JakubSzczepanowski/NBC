@@ -1,0 +1,8 @@
+{
+    "dataset": "test.csv",
+    "format": "csv",
+    "method": "optimized",
+    "k": 1,
+    "plot": true,
+    "target_feature": "test3"
+}
