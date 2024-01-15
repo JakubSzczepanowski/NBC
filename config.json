@@ -1,0 +1,8 @@
+{
+    "dataset": "datasets/2sp2glob.arff",
+    "format": "arff",
+    "method": "optimized",
+    "k": 20,
+    "plot": true,
+    "target_feature": "class"
+}

@@ -1,70 +1,115 @@
+from typing import Literal
 import pandas as pd
 import numpy as np
 from numpy.typing import ArrayLike
+import queue
+from scipy.spatial.distance import cdist
 
 class NBC:
 
-    def __init__(self, k: int):
-        self.k = k
-        self.pesimistic_distance_cache = {}
-        self.real_distance_cache = {}
+    def __init__(self, l: int = 2, method: Literal['normal', 'optimized'] = 'normal'):
+        self.l = l
+        self.method = method
 
-    def fit(self, X: pd.DataFrame, l: int = 2):
-        X['distance_with_r'] = 0
-        dim = len(X.columns)
-        r = np.zeros(dim)
+    # Obliczenie odległości każdy z każdym obiektem
+    def fit(self, X: pd.DataFrame):
+        self.n = len(X.index)
+        if self.method == 'normal':
+            self.distances = [
+                [
+                    (i, self.distance(row, inner_row, self.l))
+                    for i, inner_row in X.iterrows()
+                ]
+                for _, row in X.iterrows()
+            ]
+        elif self.method == 'optimized':
+            self.distances = cdist(X, X, 'minkowski', p=self.l)
 
-        for index, row in X.iterrows():
-            X.at[index, 'distance_with_r'] = self.distance(row, r, l)
-
-        X = X.sort_values(by='distance_with_r')
-
-        n = len(X.index)
-        for i in range(n):
-            left_index = max(0, i - self.k)
-            right_index = min(n, i + self.k + 1)
-
-            target_series = X.iloc[i]
-            target_value = target_series['distance_with_r']
-            indexed_values = [(X.iloc[j].name, X.iloc[j]) for j in range(left_index, right_index) if j != i]
-            sorted_indexes = sorted(indexed_values, key=lambda x: self._pesimistic_cache_check_or_save(x[1]['distance_with_r'], target_value))
-            candidates = sorted_indexes[:self.k]
-            eps = 0
-            for c in candidates:
-                real_distance = self._real_cache_check_or_save(c, (target_series.name, target_series))
-                if real_distance > eps:
-                    eps = real_distance
-            
-
-
-    def kneighbors(self):
-        pass
+    def predict(self, X: pd.DataFrame, k: int):
         
+        n = len(X.index)
+        kNN_counter = np.zeros(n, dtype=np.float32)
+        RkNN_counter = np.zeros(n, dtype=np.int32)
+        clst_no = np.full(n, -1)
+        neighbours = []
+        for i in range(n):
+            indices = self._find_neighbors(i, k)
+
+            # Obliczenie liczby k najbliższych sąsiadów
+            counter = len(indices)
+
+            # Jeżeli obiekt nie posiada sąsiadów wypełniamy epsilonem, aby nie dzielić przez zero
+            kNN_counter[i] = np.finfo(float).eps if counter == 0 else counter
+
+            # Każdy znaleziony sąsiad to jednocześnie odwrotny k najbliższy sąsiad
+            for neighbour_index in indices:
+                RkNN_counter[neighbour_index] += 1
+            neighbours.append(indices)
+
+        # Obliczenie współczynnika gęstości
+        ndf = RkNN_counter//kNN_counter
+
+        # Przetłumaczony pseudokod z artukułu (Fig. 2.)
+        cluster_count = 0
+        DPSet = queue.Queue()
+        
+        for p in range(n):
+            if clst_no[p] != -1 or ndf[p] < 1: continue
+            clst_no[p] = cluster_count
+            DPSet.queue.clear()
+            for q in neighbours[p]:
+                clst_no[q] = cluster_count
+                if ndf[q] >= 1: DPSet.put(q)
+            
+            while not DPSet.empty():
+                point = DPSet.get()
+                for q in neighbours[point]:
+                    if clst_no[q] != -1: continue
+                    clst_no[q] = cluster_count
+                    if ndf[q] >= 1: DPSet.put(q)
+            cluster_count += 1
+        return clst_no
+
+        
+    # Metoda do znajdywania k najbliższych sąsiadów
+    def _find_neighbors(self, current_element: int, k: int):
+        indices = None
+
+        if self.method == 'normal':
+            row_distances = self.distances[current_element]
+
+            # Posortowanie po odległościach rozważanego elementu
+            row_distances.sort(key=lambda x: x[1])
+
+            # Ekstrakcja indeksów k najbliższych sąsiadów bez uwzględniania rozważanego elementu o długości 0
+            indices = [index for index, _ in row_distances[1:k+1]]
+
+            # Sprawdzenie, czy istnieją inne punkty równej odległości
+            equal_distance_indices = [index for index, dist in row_distances[k+1:] if dist == row_distances[k][1]]
+
+            # Dodanie punktów o takiej samej odległości jak najbardziej oddalony sąsiad
+            indices.extend(equal_distance_indices)
+
+        elif self.method == 'optimized':
+            # Wyekstrahowanie k najbliższych sąsiadów poprzez posortowanie (metoda zwraca indeksy)
+            indices = np.argsort(self.distances[current_element])[1:k+1]
+
+            # Jeżeli nie ma sąsiadów nie szukamy dalej
+            if len(indices) == 0:
+                return indices
+            
+            # Pobranie najdalej oddalonego sąsiada
+            max_distance = self.distances[current_element, indices[-1]]
+
+            # Sprawdzenie, czy istnieją inne punkty równej odległości
+            equal_distance_mask = (self.distances[current_element] == max_distance) & ~np.isin(np.arange(self.n), indices)
+
+            # Dodanie indeksów o równej odległości do listy
+            equal_distance_indices = np.where(equal_distance_mask)[0]
+            indices = np.concatenate((indices, equal_distance_indices))
+
+        return indices
+        
+    # Odległość Minkowskiego
     def distance(self, p: ArrayLike, q: ArrayLike, l: int) -> float:
         return np.power(np.sum([np.abs(i-j)**l for i, j in zip(p, q)]), 1/l)
-    
-    def _pesimistic_cache_check_or_save(self, compare_value: np.float64, target_value: np.float64) -> float:
-        
-        if (compare_value, target_value) in self.pesimistic_distance_cache:
-            return self.pesimistic_distance_cache[(compare_value, target_value)]
-        if (target_value, compare_value) in self.pesimistic_distance_cache:
-            return self.pesimistic_distance_cache[(target_value, compare_value)]
-        
-        distance = np.abs(compare_value - target_value)
-
-        self.pesimistic_distance_cache[(compare_value, target_value)] = distance
-
-        return distance
-    
-    def _real_cache_check_or_save(self, obj1: tuple[int, pd.Series], obj2: tuple[int, pd.Series]) -> float:
-        
-        if (obj1[0], obj2[0]) in self.real_distance_cache:
-            return self.real_distance_cache[(obj1[0], obj2[0])]
-        if (obj2[0], obj1[0]) in self.real_distance_cache:
-            return self.real_distance_cache[(obj2[0], obj1[0])]
-        
-        distance = self.distance(obj1[1].drop('distance_with_r'), obj2[1].drop('distance_with_r'))
-
-        self.real_distance_cache[(obj1[0], obj2[0])] = distance
-
-        return distance
