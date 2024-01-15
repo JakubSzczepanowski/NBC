@@ -11,6 +11,7 @@ class NBC:
         self.l = l
         self.method = method
 
+    # Obliczenie odległości każdy z każdym obiektem
     def fit(self, X: pd.DataFrame):
         self.n = len(X.index)
         if self.method == 'normal':
@@ -34,13 +35,21 @@ class NBC:
         for i in range(n):
             indices = self._find_neighbors(i, k)
 
+            # Obliczenie liczby k najbliższych sąsiadów
             counter = len(indices)
+
+            # Jeżeli obiekt nie posiada sąsiadów wypełniamy epsilonem, aby nie dzielić przez zero
             kNN_counter[i] = np.finfo(float).eps if counter == 0 else counter
+
+            # Każdy znaleziony sąsiad to jednocześnie odwrotny k najbliższy sąsiad
             for neighbour_index in indices:
                 RkNN_counter[neighbour_index] += 1
             neighbours.append(indices)
+
+        # Obliczenie współczynnika gęstości
         ndf = RkNN_counter//kNN_counter
 
+        # Przetłumaczony pseudokod z artukułu (Fig. 2.)
         cluster_count = 0
         DPSet = queue.Queue()
         
@@ -62,33 +71,45 @@ class NBC:
         return clst_no
 
         
-    
+    # Metoda do znajdywania k najbliższych sąsiadów
     def _find_neighbors(self, current_element: int, k: int):
         indices = None
 
         if self.method == 'normal':
             row_distances = self.distances[current_element]
+
+            # Posortowanie po odległościach rozważanego elementu
             row_distances.sort(key=lambda x: x[1])
+
+            # Ekstrakcja indeksów k najbliższych sąsiadów bez uwzględniania rozważanego elementu o długości 0
             indices = [index for index, _ in row_distances[1:k+1]]
 
             # Sprawdzenie, czy istnieją inne punkty równej odległości
             equal_distance_indices = [index for index, dist in row_distances[k+1:] if dist == row_distances[k][1]]
+
+            # Dodanie punktów o takiej samej odległości jak najbardziej oddalony sąsiad
             indices.extend(equal_distance_indices)
 
         elif self.method == 'optimized':
+            # Wyekstrahowanie k najbliższych sąsiadów poprzez posortowanie (metoda zwraca indeksy)
             indices = np.argsort(self.distances[current_element])[1:k+1]
+
+            # Jeżeli nie ma sąsiadów nie szukamy dalej
             if len(indices) == 0:
                 return indices
+            
+            # Pobranie najdalej oddalonego sąsiada
             max_distance = self.distances[current_element, indices[-1]]
 
             # Sprawdzenie, czy istnieją inne punkty równej odległości
             equal_distance_mask = (self.distances[current_element] == max_distance) & ~np.isin(np.arange(self.n), indices)
 
-            # Dodaj indeksy o równej odległości do listy
+            # Dodanie indeksów o równej odległości do listy
             equal_distance_indices = np.where(equal_distance_mask)[0]
             indices = np.concatenate((indices, equal_distance_indices))
 
         return indices
         
+    # Odległość Minkowskiego
     def distance(self, p: ArrayLike, q: ArrayLike, l: int) -> float:
         return np.power(np.sum([np.abs(i-j)**l for i, j in zip(p, q)]), 1/l)

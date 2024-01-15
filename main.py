@@ -19,7 +19,6 @@ def main():
     else:
         raise ValueError("Niepoprawna wartość w polu 'format'. Dostępne wartości to: 'csv' lub 'arff'")
     
-    data = data.dropna().reset_index(drop=True)
     data_cat = data.select_dtypes(include=object)
 
     if not data_cat.empty:
